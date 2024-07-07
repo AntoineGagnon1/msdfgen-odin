@@ -10,13 +10,36 @@ when ODIN_OS == .Windows {
 // ---Core---
 Vector2 :: distinct [2]c.double
 
+Range :: struct {
+    lower, upper : c.double
+}
+
+symmetricalRange :: proc(symmetricalWidth : c.double) -> Range { return { -.5 * symmetricalWidth, .5 * symmetricalWidth }; }
+
 Projection :: struct {
-    scale, translate: Vector2
+    scale, translate : Vector2
+}
+
+/// Linear transformation of signed distance values.
+DistanceMapping :: struct {
+    scale, translate : c.double
+}
+
+distanceMappingFromRange :: proc(range : Range) -> DistanceMapping { return {1.0 / (range.upper - range.lower), -range.lower}; }
+symmetricalDistanceMapping :: proc(symmetricalWidth : c.double) -> DistanceMapping { return distanceMappingFromRange(symmetricalRange(symmetricalWidth)); }
+
+/**
+  * Full signed distance field transformation specifies both spatial transformation (Projection)
+  * as well as distance value transformation (DistanceMapping).
+  */
+SDFTransformation :: struct {
+    projection : Projection,
+    distanceMapping : DistanceMapping,
 }
 
 GeneratorConfig :: struct {
     /// Specifies whether to use the version of the algorithm that supports overlapping contours with the same winding. May be set to false to improve performance when no such contours are present.
-    overlap_support: bool,
+    overlapSupport: bool,
 }
 
 Default_GeneratorConfig :: GeneratorConfig{true}
@@ -44,11 +67,11 @@ DistanceCheckMode :: enum c.int {
 
 ErrorCorrectionConfig :: struct {
     mode: Mode,
-    distance_check_mode: DistanceCheckMode,
+    distanceCheckMode: DistanceCheckMode,
     /// The minimum ratio between the actual and maximum expected distance delta to be considered an error.
-    min_deviation_ratio: c.double,
+    minDeviationRatio: c.double,
     /// The minimum ratio between the pre-correction distance error and the post-correction distance error. Has no effect for DO_NOT_CHECK_DISTANCE.
-    min_improve_ratio: c.double,
+    minImproveRatio: c.double,
     /// An optional buffer to avoid dynamic allocation. Must have at least as many bytes as the MSDF has pixels.
     buffer: [^]u8,
 }
@@ -58,7 +81,7 @@ Default_ErrorCorrectionConfig :: ErrorCorrectionConfig{.EDGE_PRIORITY, .CHECK_DI
 MSDFGeneratorConfig :: struct {
     /// Specifies whether to use the version of the algorithm that supports overlapping contours with the same winding. May be set to false to improve performance when no such contours are present.
     overlap_support: bool,
-    error_correction: ErrorCorrectionConfig,
+    errorCorrection: ErrorCorrectionConfig,
 }
 
 Default_MSDFGeneratorConfig :: MSDFGeneratorConfig{true, Default_ErrorCorrectionConfig}
@@ -77,35 +100,30 @@ ShapeBounds :: struct {
 
 @(default_calling_convention = "c", link_prefix = "msdfgen_")
 foreign msdfgen {
-    generateSDF :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, #by_ptr projection: Projection, range: c.double, #by_ptr config: GeneratorConfig = Default_GeneratorConfig) ---
+    generateSDF :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, #by_ptr transformation: SDFTransformation, #by_ptr config: GeneratorConfig = Default_GeneratorConfig) ---
     
     /// Generates a single-channel signed pseudo-distance field.
-    generatePseudoSDF :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, #by_ptr projection: Projection, range: c.double, #by_ptr config: GeneratorConfig = Default_GeneratorConfig) ---
+    generatePSDF :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, #by_ptr transformation: SDFTransformation, #by_ptr config: GeneratorConfig = Default_GeneratorConfig) ---
     
     /// Generates a multi-channel signed distance field. Edge colors must be assigned first! (See edgeColoringSimple)
-    generateMSDF :: proc(#by_ptr output: BitmapRef(c.float, 3), shape: Shape, #by_ptr projection: Projection, range: c.double, #by_ptr config: MSDFGeneratorConfig = Default_MSDFGeneratorConfig) ---
+    generateMSDF :: proc(#by_ptr output: BitmapRef(c.float, 3), shape: Shape, #by_ptr transformation: SDFTransformation, #by_ptr config: MSDFGeneratorConfig = Default_MSDFGeneratorConfig) ---
 
     /// Generates a multi-channel signed distance field with true distance in the alpha channel. Edge colors must be assigned first.
-    generateMTSDF :: proc(#by_ptr output: BitmapRef(c.float, 4), shape: Shape, #by_ptr projection: Projection, range: c.double, #by_ptr config: MSDFGeneratorConfig = Default_MSDFGeneratorConfig) ---
-
-    // Old version of the function API's kept for backwards compatibility
-    generateSDF_old :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, range: c.double, scale: Vector2, translate: Vector2, overlapSupport: bool = true) ---
-    generatePseudoSDF_old :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, range: c.double, scale: Vector2, translate: Vector2, overlapSupport: bool = true) ---
-    generateMSDF_old :: proc(#by_ptr output: BitmapRef(c.float, 3), shape: Shape, range: c.double, scale: Vector2, translate: Vector2, #by_ptr errorCorrectionConfig: ErrorCorrectionConfig = Default_ErrorCorrectionConfig, overlapSupport: bool = true) ---
-    generateMTSDF_old :: proc(#by_ptr output: BitmapRef(c.float, 4), shape: Shape, range: c.double, scale: Vector2, translate: Vector2, #by_ptr errorCorrectionConfig: ErrorCorrectionConfig = Default_ErrorCorrectionConfig, overlapSupport: bool = true) ---
+    generateMTSDF :: proc(#by_ptr output: BitmapRef(c.float, 4), shape: Shape, #by_ptr transformation: SDFTransformation, #by_ptr config: MSDFGeneratorConfig = Default_MSDFGeneratorConfig) ---
 
     // Original simpler versions of the previous functions, which work well under normal circumstances, but cannot deal with overlapping contours.
-    generateSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, range: c.double, scale: Vector2, translate: Vector2) ---
-    generatePseudoSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, range: c.double, scale: Vector2, translate: Vector2) ---
-    generateMSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 3), shape: Shape, range: c.double, scale: Vector2, translate: Vector2, #by_ptr errorCorrectionConfig: ErrorCorrectionConfig = Default_ErrorCorrectionConfig) ---
-    generateMTSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 4), shape: Shape, range: c.double, scale: Vector2, translate: Vector2, #by_ptr errorCorrectionConfig: ErrorCorrectionConfig = Default_ErrorCorrectionConfig) ---
+    generateSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, range: Range, scale: Vector2, translate: Vector2) ---
+    generatePSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, range: Range, scale: Vector2, translate: Vector2) ---
+    generatePseudoSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 1), shape: Shape, range: Range, scale: Vector2, translate: Vector2) ---
+    generateMSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 3), shape: Shape, range: Range, scale: Vector2, translate: Vector2, #by_ptr errorCorrectionConfig: ErrorCorrectionConfig = Default_ErrorCorrectionConfig) ---
+    generateMTSDF_legacy :: proc(#by_ptr output: BitmapRef(c.float, 4), shape: Shape, range: Range, scale: Vector2, translate: Vector2, #by_ptr errorCorrectionConfig: ErrorCorrectionConfig = Default_ErrorCorrectionConfig) ---
 
 
     // Shape.h
     createShape :: proc() -> Shape ---
     destroyShape :: proc(shape: Shape) ---
+    
     normalizeShape :: proc(shape: Shape) ---
-
     setShapeInverseYAxis :: proc(shape: Shape, inverseYAxis: bool) ---
     getShapeBounds :: proc(shape: Shape, border: c.double = 0, miterLimit: c.double = 0, polarity: c.int = 0) -> ShapeBounds ---
 
@@ -162,10 +180,20 @@ FontVariationAxis :: struct {
 	defaultValue: c.double,
 }
 
+FontCoordinateScaling :: enum c.int {
+    /// The coordinates are kept as the integer values native to the font file
+    FONT_SCALING_NONE,
+    /// The coordinates will be normalized to the em size, i.e. 1 = 1 em
+    FONT_SCALING_EM_NORMALIZED,
+    /// The incorrect legacy version that was in effect before version 1.12, coordinate values are divided by 64 - DO NOT USE - for backwards compatibility only
+    FONT_SCALING_LEGACY
+}
+
 @(default_calling_convention="c", link_prefix = "msdfgen_")
 foreign msdfgen {
 
     // resolve-shape-geometry.h
+    /// Resolves any intersections within the shape by subdividing its contours using the Skia library and makes sure its contours have a consistent winding.
     resolveShapeGeometry :: proc(shape: Shape) -> bool ---
 
     // save-png.h
@@ -208,15 +236,17 @@ foreign msdfgen {
     destroyFont :: proc(font: FontHandle) ---
 
     /// Outputs the metrics of a font file.
-    getFontMetrics :: proc(metrics: ^FontMetrics, font: FontHandle) -> bool ---
+    getFontMetrics :: proc(metrics: ^FontMetrics, font: FontHandle, coordinateScaling: FontCoordinateScaling) -> bool ---
     /// Outputs the width of the space and tab characters.
-    getFontWhitespaceWidth :: proc(spaceAdvance: ^c.double, tabAdvance: ^c.double, font: FontHandle) -> bool ---
+    getFontWhitespaceWidth :: proc(spaceAdvance: ^c.double, tabAdvance: ^c.double, font: FontHandle, coordinateScaling: FontCoordinateScaling) -> bool ---
+    /// Outputs the total number of glyphs available in the font.
+	getGlyphCount :: proc(output: ^c.uint, font: FontHandle) -> bool ---
     /// Outputs the glyph index corresponding to the specified Unicode character.
     getGlyphIndex :: proc(glyphIndex: ^GlyphIndex, font: FontHandle, unicode: unicode_t) -> bool ---
     /// Loads the geometry of a glyph from a font file.
-    loadGlyph :: proc(output: Shape, font: FontHandle, glyphIndex: GlyphIndex, advance: ^c.double = nil) -> bool ---
-    loadGlyph_unicode :: proc(output: Shape, font: FontHandle, unicode: unicode_t, advance: ^c.double = nil) -> bool ---
+    loadGlyph :: proc(output: Shape, font: FontHandle, glyphIndex: GlyphIndex, coordinateScaling: FontCoordinateScaling, advance: ^c.double = nil) -> bool ---
+    loadGlyph_unicode :: proc(output: Shape, font: FontHandle, unicode: unicode_t, coordinateScaling: FontCoordinateScaling, advance: ^c.double = nil) -> bool ---
     /// Outputs the kerning distance adjustment between two specific glyphs.
-    getKerning :: proc(output: ^c.double, font: FontHandle, glyphIndex1: GlyphIndex, glyphIndex2: GlyphIndex) -> bool ---
-    getKerning_unicode :: proc(output: ^c.double, font: FontHandle, unicode1: unicode_t, unicode2: unicode_t) -> bool ---
+    getKerning :: proc(output: ^c.double, font: FontHandle, glyphIndex1: GlyphIndex, glyphIndex2: GlyphIndex, coordinateScaling: FontCoordinateScaling) -> bool ---
+    getKerning_unicode :: proc(output: ^c.double, font: FontHandle, unicode1: unicode_t, unicode2: unicode_t, coordinateScaling: FontCoordinateScaling) -> bool ---
 }
