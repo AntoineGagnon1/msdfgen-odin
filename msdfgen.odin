@@ -126,6 +126,7 @@ foreign msdfgen {
     normalizeShape :: proc(shape: Shape) ---
     setShapeInverseYAxis :: proc(shape: Shape, inverseYAxis: bool) ---
     getShapeBounds :: proc(shape: Shape, border: c.double = 0, miterLimit: c.double = 0, polarity: c.int = 0) -> ShapeBounds ---
+    shapeOrientContours :: proc(shape: Shape) ---
 
     // edge-coloring.h
     /** Assigns colors to edges of the shape in accordance to the multi-channel distance field technique.
